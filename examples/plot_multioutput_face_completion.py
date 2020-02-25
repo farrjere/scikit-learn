@@ -25,10 +25,8 @@ from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import RidgeCV
 
 # Load the faces datasets
-data = fetch_olivetti_faces()
-targets = data.target
+data, targets = fetch_olivetti_faces(return_X_y=True)
 
-data = data.images.reshape((len(data.images), -1))
 train = data[targets < 30]
 test = data[targets >= 30]  # Test on independent people
 
@@ -39,10 +37,12 @@ face_ids = rng.randint(test.shape[0], size=(n_faces, ))
 test = test[face_ids, :]
 
 n_pixels = data.shape[1]
-X_train = train[:, :np.ceil(0.5 * n_pixels)]  # Upper half of the faces
-y_train = train[:, np.floor(0.5 * n_pixels):]  # Lower half of the faces
-X_test = test[:, :np.ceil(0.5 * n_pixels)]
-y_test = test[:, np.floor(0.5 * n_pixels):]
+# Upper half of the faces
+X_train = train[:, :(n_pixels + 1) // 2]
+# Lower half of the faces
+y_train = train[:, n_pixels // 2:]
+X_test = test[:, :(n_pixels + 1) // 2]
+y_test = test[:, n_pixels // 2:]
 
 # Fit estimators
 ESTIMATORS = {
@@ -73,7 +73,6 @@ for i in range(n_faces):
     else:
         sub = plt.subplot(n_faces, n_cols, i * n_cols + 1,
                           title="true faces")
-
 
     sub.axis("off")
     sub.imshow(true_face.reshape(image_shape),

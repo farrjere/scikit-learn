@@ -27,23 +27,20 @@ The main theoretical result behind the efficiency of random projection is the
 #          Arnaud Joly <a.joly@ulg.ac.be>
 # License: BSD 3 clause
 
-from __future__ import division
 import warnings
 from abc import ABCMeta, abstractmethod
 
 import numpy as np
-from numpy.testing import assert_equal
 import scipy.sparse as sp
 
 from .base import BaseEstimator, TransformerMixin
-from .externals import six
-from .externals.six.moves import xrange
+
 from .utils import check_random_state
 from .utils.extmath import safe_sparse_dot
 from .utils.random import sample_without_replacement
-from .utils.validation import check_array
+from .utils.validation import check_array, check_is_fitted
 from .exceptions import DataDimensionalityWarning
-from .exceptions import NotFittedError
+from .utils import deprecated
 
 
 __all__ = ["SparseRandomProjection",
@@ -151,11 +148,18 @@ def _check_input_size(n_components, n_features):
                          n_components)
     if n_features <= 0:
         raise ValueError("n_features must be strictly positive, got %d" %
-                         n_components)
+                         n_features)
 
 
+# TODO: remove in 0.24
+@deprecated("gaussian_random_matrix is deprecated in "
+            "0.22 and will be removed in version 0.24.")
 def gaussian_random_matrix(n_components, n_features, random_state=None):
-    """ Generate a dense Gaussian random matrix.
+    return _gaussian_random_matrix(n_components, n_features, random_state)
+
+
+def _gaussian_random_matrix(n_components, n_features, random_state=None):
+    """Generate a dense Gaussian random matrix.
 
     The components of the random matrix are drawn from
 
@@ -171,9 +175,11 @@ def gaussian_random_matrix(n_components, n_features, random_state=None):
     n_features : int,
         Dimensionality of the original source space.
 
-    random_state : int, RandomState instance or None (default=None)
-        Control the pseudo random number generator used to generate the
-        matrix at fit time.
+    random_state : int, RandomState instance or None, optional (default=None)
+        Controls the pseudo random number generator used to generate the matrix
+        at fit time.
+        Pass an int for reproducible output across multiple function calls.
+        See :term:`Glossary <random_state>`.
 
     Returns
     -------
@@ -183,7 +189,6 @@ def gaussian_random_matrix(n_components, n_features, random_state=None):
     See Also
     --------
     GaussianRandomProjection
-    sparse_random_matrix
     """
     _check_input_size(n_components, n_features)
     rng = check_random_state(random_state)
@@ -193,8 +198,17 @@ def gaussian_random_matrix(n_components, n_features, random_state=None):
     return components
 
 
+# TODO: remove in 0.24
+@deprecated("gaussian_random_matrix is deprecated in "
+            "0.22 and will be removed in version 0.24.")
 def sparse_random_matrix(n_components, n_features, density='auto',
                          random_state=None):
+    return _sparse_random_matrix(n_components, n_features, density,
+                                 random_state)
+
+
+def _sparse_random_matrix(n_components, n_features, density='auto',
+                          random_state=None):
     """Generalized Achlioptas random sparse matrix for random projection
 
     Setting density to 1 / 3 will yield the original matrix by Dimitris
@@ -227,26 +241,27 @@ def sparse_random_matrix(n_components, n_features, density='auto',
         Use density = 1 / 3.0 if you want to reproduce the results from
         Achlioptas, 2001.
 
-    random_state : integer, RandomState instance or None (default=None)
-        Control the pseudo random number generator used to generate the
-        matrix at fit time.
+    random_state : int, RandomState instance or None, optional (default=None)
+        Controls the pseudo random number generator used to generate the matrix
+        at fit time.
+        Pass an int for reproducible output across multiple function calls.
+        See :term:`Glossary <random_state>`.
 
     Returns
     -------
-    components: numpy array or CSR matrix with shape [n_components, n_features]
+    components : array or CSR matrix with shape [n_components, n_features]
         The generated Gaussian random matrix.
 
     See Also
     --------
     SparseRandomProjection
-    gaussian_random_matrix
 
     References
     ----------
 
     .. [1] Ping Li, T. Hastie and K. W. Church, 2006,
            "Very Sparse Random Projections".
-           http://web.stanford.edu/~hastie/Papers/Ping/KDD06_rp.pdf
+           https://web.stanford.edu/~hastie/Papers/Ping/KDD06_rp.pdf
 
     .. [2] D. Achlioptas, 2001, "Database-friendly random projections",
            http://www.cs.ucsc.edu/~optas/papers/jl.pdf
@@ -266,7 +281,7 @@ def sparse_random_matrix(n_components, n_features, density='auto',
         indices = []
         offset = 0
         indptr = [offset]
-        for i in xrange(n_components):
+        for _ in range(n_components):
             # find the indices of the non-zero components for row i
             n_nonzero_i = rng.binomial(n_features, density)
             indices_i = sample_without_replacement(n_features, n_nonzero_i,
@@ -287,8 +302,7 @@ def sparse_random_matrix(n_components, n_features, density='auto',
         return np.sqrt(1 / density) / np.sqrt(n_components) * components
 
 
-class BaseRandomProjection(six.with_metaclass(ABCMeta, BaseEstimator,
-                                              TransformerMixin)):
+class BaseRandomProjection(TransformerMixin, BaseEstimator, metaclass=ABCMeta):
     """Base class for random projections.
 
     Warning: This class should not be used directly.
@@ -303,11 +317,8 @@ class BaseRandomProjection(six.with_metaclass(ABCMeta, BaseEstimator,
         self.dense_output = dense_output
         self.random_state = random_state
 
-        self.components_ = None
-        self.n_components_ = None
-
     @abstractmethod
-    def _make_random_matrix(n_components, n_features):
+    def _make_random_matrix(self, n_components, n_features):
         """ Generate the random projection matrix
 
         Parameters
@@ -335,7 +346,8 @@ class BaseRandomProjection(six.with_metaclass(ABCMeta, BaseEstimator,
             matrix dimensions based on the theory referenced in the
             afore mentioned papers.
 
-        y : is not used: placeholder to allow for usage in a Pipeline.
+        y
+            Ignored
 
         Returns
         -------
@@ -365,7 +377,7 @@ class BaseRandomProjection(six.with_metaclass(ABCMeta, BaseEstimator,
         else:
             if self.n_components <= 0:
                 raise ValueError("n_components must be greater than 0, got %s"
-                                 % self.n_components_)
+                                 % self.n_components)
 
             elif self.n_components > n_features:
                 warnings.warn(
@@ -382,15 +394,13 @@ class BaseRandomProjection(six.with_metaclass(ABCMeta, BaseEstimator,
                                                     n_features)
 
         # Check contract
-        assert_equal(
-            self.components_.shape,
-            (self.n_components_, n_features),
-            err_msg=('An error has occurred the self.components_ matrix has '
-                     ' not the proper shape.'))
+        assert self.components_.shape == (self.n_components_, n_features), (
+                'An error has occurred the self.components_ matrix has '
+                ' not the proper shape.')
 
         return self
 
-    def transform(self, X, y=None):
+    def transform(self, X):
         """Project the data by using matrix product with the random matrix
 
         Parameters
@@ -398,18 +408,14 @@ class BaseRandomProjection(six.with_metaclass(ABCMeta, BaseEstimator,
         X : numpy array or scipy.sparse of shape [n_samples, n_features]
             The input data to project into a smaller dimensional space.
 
-        y : is not used: placeholder to allow for usage in a Pipeline.
-
         Returns
         -------
         X_new : numpy array or scipy sparse of shape [n_samples, n_components]
             Projected array.
-
         """
         X = check_array(X, accept_sparse=['csr', 'csc'])
 
-        if self.components_ is None:
-            raise NotFittedError('No random projection matrix had been fit.')
+        check_is_fitted(self)
 
         if X.shape[1] != self.components_.shape[1]:
             raise ValueError(
@@ -428,6 +434,8 @@ class GaussianRandomProjection(BaseRandomProjection):
     The components of the random matrix are drawn from N(0, 1 / n_components).
 
     Read more in the :ref:`User Guide <gaussian_random_matrix>`.
+
+    .. versionadded:: 0.13
 
     Parameters
     ----------
@@ -451,17 +459,30 @@ class GaussianRandomProjection(BaseRandomProjection):
         Smaller values lead to better embedding and higher number of
         dimensions (n_components) in the target projection space.
 
-    random_state : integer, RandomState instance or None (default=None)
-        Control the pseudo random number generator used to generate the
-        matrix at fit time.
+    random_state : int, RandomState instance or None, optional (default=None)
+        Controls the pseudo random number generator used to generate the
+        projection matrix at fit time.
+        Pass an int for reproducible output across multiple function calls.
+        See :term:`Glossary <random_state>`.
 
     Attributes
     ----------
-    n_component_ : int
+    n_components_ : int
         Concrete number of components computed when n_components="auto".
 
     components_ : numpy array of shape [n_components, n_features]
         Random matrix used for the projection.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sklearn.random_projection import GaussianRandomProjection
+    >>> rng = np.random.RandomState(42)
+    >>> X = rng.rand(100, 10000)
+    >>> transformer = GaussianRandomProjection(random_state=rng)
+    >>> X_new = transformer.fit_transform(X)
+    >>> X_new.shape
+    (100, 3947)
 
     See Also
     --------
@@ -469,7 +490,7 @@ class GaussianRandomProjection(BaseRandomProjection):
 
     """
     def __init__(self, n_components='auto', eps=0.1, random_state=None):
-        super(GaussianRandomProjection, self).__init__(
+        super().__init__(
             n_components=n_components,
             eps=eps,
             dense_output=True,
@@ -493,9 +514,9 @@ class GaussianRandomProjection(BaseRandomProjection):
 
         """
         random_state = check_random_state(self.random_state)
-        return gaussian_random_matrix(n_components,
-                                      n_features,
-                                      random_state=random_state)
+        return _gaussian_random_matrix(n_components,
+                                       n_features,
+                                       random_state=random_state)
 
 
 class SparseRandomProjection(BaseRandomProjection):
@@ -514,6 +535,8 @@ class SparseRandomProjection(BaseRandomProjection):
       - +sqrt(s) / sqrt(n_components)   with probability 1 / 2s
 
     Read more in the :ref:`User Guide <sparse_random_matrix>`.
+
+    .. versionadded:: 0.13
 
     Parameters
     ----------
@@ -557,13 +580,15 @@ class SparseRandomProjection(BaseRandomProjection):
         If False, the projected data uses a sparse representation if
         the input is sparse.
 
-    random_state : integer, RandomState instance or None (default=None)
-        Control the pseudo random number generator used to generate the
-        matrix at fit time.
+    random_state : int, RandomState instance or None, optional (default=None)
+        Controls the pseudo random number generator used to generate the
+        projection matrix at fit time.
+        Pass an int for reproducible output across multiple function calls.
+        See :term:`Glossary <random_state>`.
 
     Attributes
     ----------
-    n_component_ : int
+    n_components_ : int
         Concrete number of components computed when n_components="auto".
 
     components_ : CSR matrix with shape [n_components, n_features]
@@ -571,6 +596,20 @@ class SparseRandomProjection(BaseRandomProjection):
 
     density_ : float in range 0.0 - 1.0
         Concrete density computed from when density = "auto".
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sklearn.random_projection import SparseRandomProjection
+    >>> rng = np.random.RandomState(42)
+    >>> X = rng.rand(100, 10000)
+    >>> transformer = SparseRandomProjection(random_state=rng)
+    >>> X_new = transformer.fit_transform(X)
+    >>> X_new.shape
+    (100, 3947)
+    >>> # very few components are non-zero
+    >>> np.mean(transformer.components_ != 0)
+    0.0100...
 
     See Also
     --------
@@ -581,7 +620,7 @@ class SparseRandomProjection(BaseRandomProjection):
 
     .. [1] Ping Li, T. Hastie and K. W. Church, 2006,
            "Very Sparse Random Projections".
-           http://web.stanford.edu/~hastie/Papers/Ping/KDD06_rp.pdf
+           https://web.stanford.edu/~hastie/Papers/Ping/KDD06_rp.pdf
 
     .. [2] D. Achlioptas, 2001, "Database-friendly random projections",
            https://users.soe.ucsc.edu/~optas/papers/jl.pdf
@@ -589,14 +628,13 @@ class SparseRandomProjection(BaseRandomProjection):
     """
     def __init__(self, n_components='auto', density='auto', eps=0.1,
                  dense_output=False, random_state=None):
-        super(SparseRandomProjection, self).__init__(
+        super().__init__(
             n_components=n_components,
             eps=eps,
             dense_output=dense_output,
             random_state=random_state)
 
         self.density = density
-        self.density_ = None
 
     def _make_random_matrix(self, n_components, n_features):
         """ Generate the random projection matrix
@@ -617,7 +655,7 @@ class SparseRandomProjection(BaseRandomProjection):
         """
         random_state = check_random_state(self.random_state)
         self.density_ = _check_density(self.density, n_features)
-        return sparse_random_matrix(n_components,
-                                    n_features,
-                                    density=self.density_,
-                                    random_state=random_state)
+        return _sparse_random_matrix(n_components,
+                                     n_features,
+                                     density=self.density_,
+                                     random_state=random_state)
